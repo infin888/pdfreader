@@ -1,6 +1,19 @@
-import type { Token } from './pdf';
+export function getPageCount(
+  viewport: HTMLElement,
+  flow: HTMLElement,
+  orderedElements?: HTMLElement[]
+): number {
+  if (orderedElements && orderedElements.length > 0) {
+    let maxPage = 0;
+    for (const el of orderedElements) {
+      const page = getTokenPageFromElement(el, viewport);
+      if (page > maxPage) {
+        maxPage = page;
+      }
+    }
+    return maxPage + 1;
+  }
 
-export function getPageCount(viewport: HTMLElement, flow: HTMLElement): number {
   const viewportWidth = Math.max(1, viewport.clientWidth);
   const totalWidth = flow.scrollWidth;
   return Math.max(1, Math.ceil(totalWidth / viewportWidth));
@@ -14,40 +27,56 @@ function getTokenPageFromElement(el: HTMLElement, viewport: HTMLElement): number
   return Math.max(0, Math.floor(relativeLeft / width));
 }
 
-export function getTokenPageIndex(tokenIdx: number, flow: HTMLElement, viewport: HTMLElement): number | null {
-  const el = flow.querySelector<HTMLElement>(`[data-idx="${tokenIdx}"]`);
-  if (!el) {
-    return null;
-  }
-  return getTokenPageFromElement(el, viewport);
-}
-
-export function findAnchorTokenIndex(tokens: Token[], flow: HTMLElement, viewport: HTMLElement, pageIndex: number): number | null {
-  for (const token of tokens) {
-    const el = flow.querySelector<HTMLElement>(`[data-idx="${token.idx}"]`);
-    if (!el) {
+export function collectTokenElements(flow: HTMLElement): { ordered: HTMLElement[]; byIndex: Map<number, HTMLElement> } {
+  const elements = Array.from(flow.querySelectorAll<HTMLElement>('[data-idx]'));
+  const byIndex = new Map<number, HTMLElement>();
+  for (const el of elements) {
+    const rawIdx = el.dataset.idx;
+    if (!rawIdx) {
       continue;
     }
+    const idx = Number(rawIdx);
+    if (!Number.isNaN(idx)) {
+      byIndex.set(idx, el);
+    }
+  }
+  return { ordered: elements, byIndex };
+}
+
+export function getTokenPageIndex(
+  tokenIdx: number,
+  tokenElements: Map<number, HTMLElement>,
+  viewport: HTMLElement
+): number | null {
+  const el = tokenElements.get(tokenIdx);
+  return el ? getTokenPageFromElement(el, viewport) : null;
+}
+
+export function findAnchorTokenIndex(
+  orderedElements: HTMLElement[],
+  viewport: HTMLElement,
+  pageIndex: number
+): number | null {
+  for (const el of orderedElements) {
     const tokenPage = getTokenPageFromElement(el, viewport);
     if (tokenPage === pageIndex) {
-      return token.idx;
+      const idx = Number(el.dataset.idx);
+      if (!Number.isNaN(idx)) {
+        return idx;
+      }
     }
   }
   return null;
 }
 
-export function countWordsForPage(tokens: Token[], flow: HTMLElement, viewport: HTMLElement, pageIndex: number): number {
+export function countWordsForPage(
+  orderedElements: HTMLElement[],
+  viewport: HTMLElement,
+  pageIndex: number
+): number {
   let count = 0;
-  const width = Math.max(1, viewport.clientWidth);
-  const viewportRect = viewport.getBoundingClientRect();
-  for (const token of tokens) {
-    const el = flow.querySelector<HTMLElement>(`[data-idx="${token.idx}"]`);
-    if (!el) {
-      continue;
-    }
-    const rect = el.getClientRects()[0] ?? el.getBoundingClientRect();
-    const relativeLeft = rect.left - viewportRect.left + viewport.scrollLeft;
-    const tokenPage = Math.max(0, Math.floor(relativeLeft / width));
+  for (const el of orderedElements) {
+    const tokenPage = getTokenPageFromElement(el, viewport);
     if (tokenPage === pageIndex) {
       count += 1;
     }
