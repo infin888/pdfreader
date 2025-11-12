@@ -2,7 +2,13 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ChangeEvent, FormEvent } from 'react';
 import type { Paragraph, Token } from './pdf';
 import { loadPdfFromFile, loadPdfFromUrl } from './pdf';
-import { countWordsForPage, findAnchorTokenIndex, getPageCount, getTokenPageIndex } from './paginate';
+import {
+  collectTokenElements,
+  countWordsForPage,
+  findAnchorTokenIndex,
+  getPageCount,
+  getTokenPageIndex
+} from './paginate';
 import { persistReadingState, restoreReadingState } from './storage';
 
 const DEFAULT_FONT_SIZE = 18;
@@ -32,6 +38,8 @@ export default function App(): JSX.Element {
   const flowRef = useRef<HTMLDivElement | null>(null);
   const anchorTokenRef = useRef<number | null>(null);
   const pendingPageRef = useRef<number | null>(null);
+  const orderedTokenElementsRef = useRef<HTMLElement[]>([]);
+  const tokenElementMapRef = useRef<Map<number, HTMLElement>>(new Map());
 
   const hasDocument = tokens.length > 0;
 
@@ -49,11 +57,11 @@ export default function App(): JSX.Element {
   );
 
   const captureAnchor = useCallback(() => {
-    if (!flowRef.current || !viewportRef.current || !tokens.length) {
+    if (!viewportRef.current || orderedTokenElementsRef.current.length === 0) {
       return null;
     }
-    return findAnchorTokenIndex(tokens, flowRef.current, viewportRef.current, pageIndex);
-  }, [pageIndex, tokens]);
+    return findAnchorTokenIndex(orderedTokenElementsRef.current, viewportRef.current, pageIndex);
+  }, [pageIndex]);
 
   const handlePrev = useCallback(() => {
     scrollToPage(pageIndex - 1);
@@ -80,15 +88,26 @@ export default function App(): JSX.Element {
 
   const updateWordsForPage = useCallback(
     (page: number) => {
-      if (!flowRef.current || !viewportRef.current || !tokens.length) {
+      if (!viewportRef.current || orderedTokenElementsRef.current.length === 0) {
         setWordsOnPage(0);
         return;
       }
-      const count = countWordsForPage(tokens, flowRef.current, viewportRef.current, page);
+      const count = countWordsForPage(orderedTokenElementsRef.current, viewportRef.current, page);
       setWordsOnPage(count);
     },
-    [tokens]
+    []
   );
+
+  useLayoutEffect(() => {
+    if (!flowRef.current) {
+      orderedTokenElementsRef.current = [];
+      tokenElementMapRef.current = new Map();
+      return;
+    }
+    const { ordered, byIndex } = collectTokenElements(flowRef.current);
+    orderedTokenElementsRef.current = ordered;
+    tokenElementMapRef.current = byIndex;
+  }, [paragraphs, tokens]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -125,16 +144,21 @@ export default function App(): JSX.Element {
       setViewportSize({ width: viewport.clientWidth, height: viewport.clientHeight });
     };
     updateSize();
+    let frame = 0;
     const observer = new ResizeObserver(() => {
       anchorTokenRef.current = captureAnchor();
-      updateSize();
+      cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(updateSize);
     });
     observer.observe(viewport);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
   }, [captureAnchor]);
 
   useLayoutEffect(() => {
-    if (!flowRef.current || !viewportRef.current || !tokens.length) {
+    if (!flowRef.current || !viewportRef.current || orderedTokenElementsRef.current.length === 0) {
       setPageCount(1);
       setWordsOnPage(0);
       return;
@@ -150,19 +174,20 @@ export default function App(): JSX.Element {
       targetPage = clamp(pendingPageRef.current, 0, newPageCount - 1);
       pendingPageRef.current = null;
     } else if (anchorTokenRef.current != null) {
-      const anchorPage = getTokenPageIndex(anchorTokenRef.current, flow, viewport);
+      const anchorPage = getTokenPageIndex(anchorTokenRef.current, tokenElementMapRef.current, viewport);
       if (anchorPage != null) {
         targetPage = clamp(anchorPage, 0, newPageCount - 1);
       }
       anchorTokenRef.current = null;
     }
 
-    setTimeout(() => {
+    const frame = window.requestAnimationFrame(() => {
       scrollToPage(targetPage, 'auto');
       updateWordsForPage(targetPage);
-    }, 0);
+    });
 
     setPageIndex((prev) => (prev === targetPage ? prev : targetPage));
+    return () => window.cancelAnimationFrame(frame);
   }, [fontSize, pageIndex, scrollToPage, tokens, updateWordsForPage, viewportSize.height, viewportSize.width]);
 
   useEffect(() => {
@@ -170,7 +195,7 @@ export default function App(): JSX.Element {
       return;
     }
     updateWordsForPage(pageIndex);
-  }, [pageIndex, fontSize, tokens, viewportSize.width, viewportSize.height, updateWordsForPage, hasDocument]);
+  }, [pageIndex, fontSize, viewportSize.width, viewportSize.height, updateWordsForPage, hasDocument]);
 
   useEffect(() => {
     if (!docId || !hasDocument) {
