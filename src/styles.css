@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --column-gap: 1rem;
+}
+
+body {
+  @apply antialiased bg-slate-100 text-slate-900;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.reader-viewport {
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+
+.reader-flow {
+  column-fill: auto;
+  column-gap: var(--column-gap);
+  width: max-content;
+  height: 100%;
+  overflow: visible;
+}
+
+.reader-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.reader-flow p {
+  break-inside: avoid;
+  margin: 0 0 1.25rem;
+}
+
+.control-button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid theme('colors.blue.500');
+  outline-offset: 2px;
+}
