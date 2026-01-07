@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, memo } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import type { Paragraph, Token } from './pdf';
 import { loadPdfFromFile, loadPdfFromUrl } from './pdf';
@@ -18,6 +18,19 @@ const MAX_FONT = 26;
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
+
+// Memoized paragraph component to prevent unnecessary re-renders
+const ParagraphComponent = memo(({ paragraph }: { paragraph: Paragraph }) => (
+  <p key={paragraph.id} className="snap-start">
+    {paragraph.tokens.map((token, index) => (
+      <span key={token.idx} data-idx={token.idx}>
+        {token.text}
+        {index < paragraph.tokens.length - 1 ? ' ' : ''}
+      </span>
+    ))}
+  </p>
+));
+ParagraphComponent.displayName = 'ParagraphComponent';
 
 export default function App(): JSX.Element {
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -115,7 +128,13 @@ export default function App(): JSX.Element {
       return;
     }
     let frame = 0;
+    let lastScrollLeft = viewport.scrollLeft;
     const handleScroll = () => {
+      // Only process if scroll position actually changed
+      if (viewport.scrollLeft === lastScrollLeft) {
+        return;
+      }
+      lastScrollLeft = viewport.scrollLeft;
       cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         const width = Math.max(1, viewport.clientWidth);
@@ -145,15 +164,21 @@ export default function App(): JSX.Element {
     };
     updateSize();
     let frame = 0;
+    let debounceTimer: number | undefined;
     const observer = new ResizeObserver(() => {
       anchorTokenRef.current = captureAnchor();
       cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(updateSize);
+      // Debounce resize updates to reduce expensive recalculations
+      clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(() => {
+        frame = window.requestAnimationFrame(updateSize);
+      }, 150);
     });
     observer.observe(viewport);
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
+      clearTimeout(debounceTimer);
     };
   }, [captureAnchor]);
 
@@ -449,14 +474,7 @@ export default function App(): JSX.Element {
               }}
             >
               {paragraphs.map((paragraph) => (
-                <p key={paragraph.id} className="snap-start">
-                  {paragraph.tokens.map((token, index) => (
-                    <span key={token.idx} data-idx={token.idx}>
-                      {token.text}
-                      {index < paragraph.tokens.length - 1 ? ' ' : ''}
-                    </span>
-                  ))}
-                </p>
+                <ParagraphComponent key={paragraph.id} paragraph={paragraph} />
               ))}
             </div>
           </div>

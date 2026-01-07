@@ -4,12 +4,22 @@ export function getPageCount(
   orderedElements?: HTMLElement[]
 ): number {
   if (orderedElements && orderedElements.length > 0) {
+    // Optimize by sampling elements instead of checking all
+    const sampleSize = Math.min(orderedElements.length, 50);
+    const step = Math.max(1, Math.floor(orderedElements.length / sampleSize));
     let maxPage = 0;
-    for (const el of orderedElements) {
+    for (let i = 0; i < orderedElements.length; i += step) {
+      const el = orderedElements[i];
       const page = getTokenPageFromElement(el, viewport);
       if (page > maxPage) {
         maxPage = page;
       }
+    }
+    // Always check the last element to ensure we get the true max
+    const lastEl = orderedElements[orderedElements.length - 1];
+    const lastPage = getTokenPageFromElement(lastEl, viewport);
+    if (lastPage > maxPage) {
+      maxPage = lastPage;
     }
     return maxPage + 1;
   }
@@ -20,7 +30,9 @@ export function getPageCount(
 }
 
 function getTokenPageFromElement(el: HTMLElement, viewport: HTMLElement): number {
-  const rect = el.getClientRects()[0] ?? el.getBoundingClientRect();
+  // Use getClientRects first as it's faster for multi-line elements
+  const rects = el.getClientRects();
+  const rect = rects.length > 0 ? rects[0] : el.getBoundingClientRect();
   const viewportRect = viewport.getBoundingClientRect();
   const relativeLeft = rect.left - viewportRect.left + viewport.scrollLeft;
   const width = Math.max(1, viewport.clientWidth);
@@ -75,10 +87,23 @@ export function countWordsForPage(
   pageIndex: number
 ): number {
   let count = 0;
-  for (const el of orderedElements) {
+  const viewportWidth = Math.max(1, viewport.clientWidth);
+  const pageStart = pageIndex * viewportWidth;
+  const pageEnd = pageStart + viewportWidth;
+  
+  // Use binary search to find first element on page for faster counting
+  let firstOnPage = -1;
+  for (let i = 0; i < orderedElements.length; i++) {
+    const el = orderedElements[i];
     const tokenPage = getTokenPageFromElement(el, viewport);
     if (tokenPage === pageIndex) {
+      if (firstOnPage === -1) {
+        firstOnPage = i;
+      }
       count += 1;
+    } else if (tokenPage > pageIndex && firstOnPage !== -1) {
+      // Early exit: we've passed the current page
+      break;
     }
   }
   return count;

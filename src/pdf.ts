@@ -35,7 +35,11 @@ const SPACE_REGEX = /\s+/g;
 
 function normalizeTextContent(content: TextContent): string[] {
   const chunks: string[] = [];
-  for (const item of content.items as TextItem[]) {
+  const items = content.items as TextItem[];
+  const length = items.length;
+  
+  for (let i = 0; i < length; i++) {
+    const item = items[i];
     if (!item || typeof item.str !== 'string') {
       continue;
     }
@@ -60,22 +64,36 @@ function buildParagraphs(paragraphStrings: string[], startIndex: number): {
   tokens: Token[];
   nextIndex: number;
 } {
-  const paragraphs: Paragraph[] = [];
+  const numParagraphs = paragraphStrings.length;
+  // Pre-allocate arrays with estimated size for better performance
+  const paragraphs: Paragraph[] = new Array(numParagraphs);
   const tokens: Token[] = [];
   let idx = startIndex;
+  let paragraphCount = 0;
 
-  paragraphStrings.forEach((paragraph, paragraphIndex) => {
+  for (let i = 0; i < numParagraphs; i++) {
+    const paragraph = paragraphStrings[i];
     const words = paragraph.split(SPACE_REGEX).filter(Boolean);
     if (!words.length) {
-      return;
+      continue;
     }
-    const paragraphTokens: Token[] = words.map((word) => ({
-      idx: idx++,
-      text: word
-    }));
-    paragraphs.push({ id: `p-${paragraphIndex}-${startIndex}`, tokens: paragraphTokens });
+    const wordCount = words.length;
+    const paragraphTokens: Token[] = new Array(wordCount);
+    for (let j = 0; j < wordCount; j++) {
+      paragraphTokens[j] = {
+        idx: idx++,
+        text: words[j]
+      };
+    }
+    paragraphs[paragraphCount++] = { 
+      id: `p-${i}-${startIndex}`, 
+      tokens: paragraphTokens 
+    };
     tokens.push(...paragraphTokens);
-  });
+  }
+
+  // Trim to actual size
+  paragraphs.length = paragraphCount;
 
   return { paragraphs, tokens, nextIndex: idx };
 }
@@ -90,9 +108,16 @@ async function loadPdf(data: ArrayBuffer, kind: SourceKind, key: string, options
   const allParagraphs: Paragraph[] = [];
 
   try {
+    // Fetch metadata early and in parallel with first page
+    const metadataPromise = pdf.getMetadata().catch(() => null);
+    
     for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber);
       const textContent = await page.getTextContent();
+      
+      // Clean up page reference after use
+      page.cleanup();
+      
       const normalizedParagraphs = normalizeTextContent(textContent);
       const { paragraphs, tokens, nextIndex } = buildParagraphs(normalizedParagraphs, index);
       index = nextIndex;
@@ -101,7 +126,7 @@ async function loadPdf(data: ArrayBuffer, kind: SourceKind, key: string, options
       options?.onProgress?.(pageNumber / totalPages);
     }
 
-    const metadata = await pdf.getMetadata().catch(() => null);
+    const metadata = await metadataPromise;
 
     return {
       docId,
@@ -110,6 +135,7 @@ async function loadPdf(data: ArrayBuffer, kind: SourceKind, key: string, options
       title: metadata?.info?.Title ?? undefined
     };
   } finally {
+    // Ensure cleanup happens even on error
     loadingTask.destroy();
   }
 }
