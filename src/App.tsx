@@ -3,13 +3,13 @@ import type { ChangeEvent, FormEvent } from 'react';
 import type { Paragraph, Token } from './pdf';
 import { loadPdfFromFile, loadPdfFromUrl } from './pdf';
 import {
-  collectTokenElements,
   countWordsForPage,
   findAnchorTokenIndex,
   getPageCount,
   getTokenPageIndex
 } from './paginate';
 import { persistReadingState, restoreReadingState } from './storage';
+import { useTokenElements } from './useTokenElements';
 
 const DEFAULT_FONT_SIZE = 18;
 const MIN_FONT = 14;
@@ -51,8 +51,13 @@ export default function App(): JSX.Element {
   const flowRef = useRef<HTMLDivElement | null>(null);
   const anchorTokenRef = useRef<number | null>(null);
   const pendingPageRef = useRef<number | null>(null);
-  const orderedTokenElementsRef = useRef<HTMLElement[]>([]);
-  const tokenElementMapRef = useRef<Map<number, HTMLElement>>(new Map());
+  
+  // Use custom hook for efficient token element management
+  const { orderedElements: orderedTokenElementsRef, elementMap: tokenElementMapRef } = useTokenElements(
+    flowRef,
+    paragraphs,
+    tokens
+  );
 
   const hasDocument = tokens.length > 0;
 
@@ -74,7 +79,7 @@ export default function App(): JSX.Element {
       return null;
     }
     return findAnchorTokenIndex(orderedTokenElementsRef.current, viewportRef.current, pageIndex);
-  }, [pageIndex]);
+  }, [pageIndex, orderedTokenElementsRef]);
 
   const handlePrev = useCallback(() => {
     scrollToPage(pageIndex - 1);
@@ -108,19 +113,8 @@ export default function App(): JSX.Element {
       const count = countWordsForPage(orderedTokenElementsRef.current, viewportRef.current, page);
       setWordsOnPage(count);
     },
-    []
+    [orderedTokenElementsRef]
   );
-
-  useLayoutEffect(() => {
-    if (!flowRef.current) {
-      orderedTokenElementsRef.current = [];
-      tokenElementMapRef.current = new Map();
-      return;
-    }
-    const { ordered, byIndex } = collectTokenElements(flowRef.current);
-    orderedTokenElementsRef.current = ordered;
-    tokenElementMapRef.current = byIndex;
-  }, [paragraphs, tokens]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
