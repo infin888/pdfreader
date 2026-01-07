@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, memo } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import type { Paragraph, Token } from './pdf';
 import { loadPdfFromFile, loadPdfFromUrl } from './pdf';
 import {
-  collectTokenElements,
   countWordsForPage,
   findAnchorTokenIndex,
   getPageCount,
   getTokenPageIndex
 } from './paginate';
 import { persistReadingState, restoreReadingState } from './storage';
+import { useTokenElements } from './useTokenElements';
 
 const DEFAULT_FONT_SIZE = 18;
 const MIN_FONT = 14;
@@ -18,6 +18,19 @@ const MAX_FONT = 26;
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
+
+// Memoized paragraph component to prevent unnecessary re-renders
+const ParagraphComponent = memo(({ paragraph }: { paragraph: Paragraph }) => (
+  <p key={paragraph.id} className="snap-start">
+    {paragraph.tokens.map((token, index) => (
+      <span key={token.idx} data-idx={token.idx}>
+        {token.text}
+        {index < paragraph.tokens.length - 1 ? ' ' : ''}
+      </span>
+    ))}
+  </p>
+));
+ParagraphComponent.displayName = 'ParagraphComponent';
 
 export default function App(): JSX.Element {
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -38,8 +51,13 @@ export default function App(): JSX.Element {
   const flowRef = useRef<HTMLDivElement | null>(null);
   const anchorTokenRef = useRef<number | null>(null);
   const pendingPageRef = useRef<number | null>(null);
-  const orderedTokenElementsRef = useRef<HTMLElement[]>([]);
-  const tokenElementMapRef = useRef<Map<number, HTMLElement>>(new Map());
+  
+  // Use custom hook for efficient token element management
+  const { orderedElements: orderedTokenElementsRef, elementMap: tokenElementMapRef } = useTokenElements(
+    flowRef,
+    paragraphs,
+    tokens
+  );
 
   const hasDocument = tokens.length > 0;
 
@@ -61,7 +79,7 @@ export default function App(): JSX.Element {
       return null;
     }
     return findAnchorTokenIndex(orderedTokenElementsRef.current, viewportRef.current, pageIndex);
-  }, [pageIndex]);
+  }, [pageIndex, orderedTokenElementsRef]);
 
   const handlePrev = useCallback(() => {
     scrollToPage(pageIndex - 1);
@@ -95,19 +113,8 @@ export default function App(): JSX.Element {
       const count = countWordsForPage(orderedTokenElementsRef.current, viewportRef.current, page);
       setWordsOnPage(count);
     },
-    []
+    [orderedTokenElementsRef]
   );
-
-  useLayoutEffect(() => {
-    if (!flowRef.current) {
-      orderedTokenElementsRef.current = [];
-      tokenElementMapRef.current = new Map();
-      return;
-    }
-    const { ordered, byIndex } = collectTokenElements(flowRef.current);
-    orderedTokenElementsRef.current = ordered;
-    tokenElementMapRef.current = byIndex;
-  }, [paragraphs, tokens]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -115,7 +122,13 @@ export default function App(): JSX.Element {
       return;
     }
     let frame = 0;
+    let lastScrollLeft = viewport.scrollLeft;
     const handleScroll = () => {
+      // Only process if scroll position actually changed
+      if (viewport.scrollLeft === lastScrollLeft) {
+        return;
+      }
+      lastScrollLeft = viewport.scrollLeft;
       cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         const width = Math.max(1, viewport.clientWidth);
@@ -145,15 +158,21 @@ export default function App(): JSX.Element {
     };
     updateSize();
     let frame = 0;
+    let debounceTimer: number | undefined;
     const observer = new ResizeObserver(() => {
       anchorTokenRef.current = captureAnchor();
       cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(updateSize);
+      // Debounce resize updates to reduce expensive recalculations
+      clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(() => {
+        frame = window.requestAnimationFrame(updateSize);
+      }, 150);
     });
     observer.observe(viewport);
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
+      clearTimeout(debounceTimer);
     };
   }, [captureAnchor]);
 
@@ -449,14 +468,7 @@ export default function App(): JSX.Element {
               }}
             >
               {paragraphs.map((paragraph) => (
-                <p key={paragraph.id} className="snap-start">
-                  {paragraph.tokens.map((token, index) => (
-                    <span key={token.idx} data-idx={token.idx}>
-                      {token.text}
-                      {index < paragraph.tokens.length - 1 ? ' ' : ''}
-                    </span>
-                  ))}
-                </p>
+                <ParagraphComponent key={paragraph.id} paragraph={paragraph} />
               ))}
             </div>
           </div>
