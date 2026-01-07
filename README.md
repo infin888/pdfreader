@@ -19,9 +19,11 @@ A modern PDF reader built with React, TypeScript, and Vite that allows you to re
 
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
-   cd <repository-directory>
+   git clone https://github.com/infin888/pdfreader.git
+   cd pdfreader
    ```
+   
+   (Replace with your fork URL if applicable)
 
 2. Install dependencies:
    ```bash
