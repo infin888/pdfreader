@@ -20,7 +20,7 @@ A modern PDF reader built with React, TypeScript, and Vite that allows you to re
 1. Clone the repository:
    ```bash
    git clone <repository-url>
-   cd pdfreader
+   cd <repository-directory>
    ```
 
 2. Install dependencies:
